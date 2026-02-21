@@ -168,3 +168,5 @@ uv.lock
 # NeuroBridge specific
 checkpoints/
 data/clip_embeddings/*.npy
+results/**/*.png
+results/**/*.npy
