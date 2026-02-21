@@ -686,7 +686,33 @@ data/clip_embeddings/
 
 ### 训练后重建 (v3, 100张全部测试图)
 
-*生成中...*
+**SD 重建 (trained DiffusionAdapter)**:
+| 指标 | 值 |
+|------|-----|
+| PixCorr | 0.036 ± 0.108 |
+| CLIP similarity | 0.606 ± 0.056 |
+| CLIP ID Top-1 | 1.0% |
+| CLIP ID Top-5 | 5.0% |
+| CLIP ID Median rank | 48/100 |
+
+**检索 baseline (nearest neighbor in CLIP space)**:
+| 指标 | 值 |
+|------|-----|
+| PixCorr | 0.125 ± 0.168 |
+| CLIP similarity | 0.677 ± 0.102 |
+| CLIP ID Top-1 | 28.0% |
+| Retrieval Top-1 (neural→image) | 49.0% |
+| Retrieval Top-5 | 85.0% |
+
+**分析**:
+- SD 重建产生了连贯的自然图像，但语义匹配度不高
+- 检索 baseline 在所有指标上优于 SD 重建 — 这在脑解码领域是常见现象
+- 核心瓶颈：neural CLIP embeddings 与真实 CLIP embeddings 的对齐精度有限
+  (positive sim = 0.157, negative sim = 0.023)
+- 后续改进方向：
+  1. 端到端 adapter 训练（使用 neural embeddings 而非 CLIP embeddings）
+  2. 更强的 CLIP 对齐模型（更大 batch、SoftCLIP、label smoothing）
+  3. 预训练 encoder 提升神经表征质量
 
 ---
 
@@ -726,14 +752,106 @@ Input MUA (1024 electrodes)
 - **Mask ratio**: 25% (平均 256/1024 electrodes)
 - **Forward pass 验证**: OK
 
-### 接下来要做的
+### Masking 预训练结果
 
-1. **Phase 2c 完成**: 评估训练后 adapter 的重建质量
-2. **Phase 1b 训练**: 运行 masking 预训练 (200 epochs)
-3. **Phase 3 核心消融**:
-   - 预训练 encoder vs 随机初始化 encoder → CLIP 对齐对比
-   - V1/V4/IT 脑区贡献分析
-   - Masking 比例消融 (15%/25%/40%)
+- 200 epochs, batch=256, lr=3e-4, mask_ratio=25%
+- **MSE**: 0.212 → 0.092 (56% reduction)
+- **No overfitting**: val=0.092, train=0.094
+- Best epoch: 196
+
+---
+
+## 16. Phase 3: 消融实验
+
+### 3a. 预训练 vs 随机初始化 Encoder
+
+| Metric | V2 (Random Init) | V3 (Pretrained, freeze 10 ep) |
+|--------|------------------|-------------------------------|
+| Best Val Top-5 | **62.8%** | 55.5% |
+| Test N→I Top-1 | 49% | **50%** |
+| Test N→I Top-5 | **85%** | 76% |
+| Test N→I Top-10 | **94%** | 88% |
+| Test I→N Top-5 | **89%** | 83% |
+| Positive sim | 0.157 | **0.172** |
+| Negative sim | 0.023 | 0.018 |
+
+**结论**: 随机初始化在 retrieval Top-k 指标上优于预训练。预训练 encoder 的 positive similarity 更高 (0.172 vs 0.157)，但 Top-k retrieval 反而下降。可能原因：
+1. 预训练特征（MUA 重建优化）与 CLIP 对齐目标不完全兼容
+2. 数据集较小 (22K)，端到端学习比迁移更高效
+3. Freeze-then-unfreeze 策略可能不是最优的
+
+### 3b. 脑区贡献分析
+
+| 区域 | 电极数 | Val Top-5 | Test N→I Top-1 | Test N→I Top-5 | Test N→I Top-10 | Pos Sim |
+|------|--------|-----------|----------------|----------------|-----------------|---------|
+| V1+V4+IT (全部) | 1024 | **62.8%** | 49% | **85%** | **94%** | 0.157 |
+| IT only | 320 | 53.9% | **50%** | 77% | 89% | 0.154 |
+| V4 only | 192 | 34.0% | 25% | 58% | 74% | 0.112 |
+| V1 only | 512 | 30.0% | 19% | 45% | 58% | 0.091 |
+
+**关键发现**:
+1. **IT 区域贡献最大**: IT-only (320 electrodes) 达到接近全区域的性能 (Top-5: 77% vs 85%)
+   - IT 是腹侧视觉通路的高级区域，负责物体识别，与 CLIP 的语义空间最对齐
+2. **V4 > V1**: V4 (192 electrodes) > V1 (512 electrodes) 尽管 V4 电极数更少
+   - V4 处理形状和颜色等中级视觉特征，比 V1 的低级边缘/纹理特征更有语义信息
+3. **全区域最优**: 结合所有区域获得最佳性能，但 IT 区域的边际贡献最大
+4. **电极数不决定性能**: V1 有 512 个电极但性能最低，IT 只有 320 个但性能最高
+
+**神经科学意义**: 这些结果与腹侧视觉通路的层级处理理论一致 —— 高级视觉区域 (IT) 包含更丰富的物体语义表征，因此与 CLIP 的语义空间对齐更好。
+
+---
+
+## 17. 全天进展总结
+
+### 已完成阶段
+
+| Phase | 内容 | 关键结果 |
+|-------|------|---------|
+| 0 | POYO baseline + TVSD 数据探索 | R²=0.836, 22248 train + 100 test |
+| 1a | TVSD 数据适配 + CaPOYO 前向传播 | 1024 electrodes, V1/V4/IT 映射 |
+| 1b | Masking 预训练 | MSE: 0.212→0.092, 200 epochs |
+| 2a | CLIP 对齐模块实现 | Readout + Projector + InfoNCE |
+| 2b | CLIP 对齐训练 V1+V2 | Val Top-5=63%, Test Top-5=85-89% |
+| 2c | SD 图像重建 | 100张图, PixCorr=0.036, CLIP-sim=0.606 |
+| 3a | 消融: 预训练 vs 随机 | 随机 Top-5=85% > 预训练 76% |
+| 3b | 消融: 脑区贡献 | IT >> V4 > V1, IT-only Top-5=77% |
+
+### 完整代码结构
+
+```
+neurobridge/
+  models/
+    neurobridge_encoder.py      # CaPOYO 编码器
+  data/
+    tvsd_dataset.py             # TVSD normMUA 数据适配
+  alignment/
+    readout.py                  # 交叉注意力读出
+    projector.py                # MLP 投影器
+    infonce.py                  # InfoNCE 对比损失
+  generation/
+    diffusion_adapter.py        # SD 适配器
+  pretraining/
+    masking_strategy.py         # 电极 masking
+    masking_decoder.py          # 重建解码器
+    masking_pretraining.py      # 预训练模型
+
+scripts/
+  train_clip_alignment.py       # CLIP 对齐训练 (支持预训练/冻结)
+  train_masking_pretraining.py  # Masking 预训练
+  train_diffusion_adapter.py    # Adapter 训练
+  extract_clip_embeddings.py    # CLIP 嵌入提取
+  evaluate_alignment.py         # 检索评估 (支持脑区)
+  evaluate_reconstruction.py    # 重建评估 (PixCorr/CLIP-sim/检索)
+  reconstruct_images.py         # 端到端重建
+```
+
+### 接下来要做
+
+1. 改进 DiffusionAdapter 训练策略（使用 neural embeddings 而非仅 CLIP embeddings）
+2. 检索+SD混合方法（检索最近邻图像，用 SD 基于 neural embedding 编辑）
+3. 模型扩展实验（dim=256, depth=8）
+4. 跨猴泛化测试（monkeyN 数据）
+5. 论文撰写准备
 
 ---
 

@@ -146,6 +146,8 @@ def main():
     parser.add_argument("--clip_embeddings", type=str, required=True)
     parser.add_argument("--monkey", type=str, default="monkeyF")
     parser.add_argument("--split", type=str, default="test")
+    parser.add_argument("--regions", type=str, nargs="*", default=None,
+                        help="Brain regions to use (V1, V4, IT)")
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--output", type=str, default=None)
     args = parser.parse_args()
@@ -163,10 +165,12 @@ def main():
     print(f"  Epoch: {ckpt['epoch']}, Val top5: {ckpt.get('val_top5', 'N/A')}")
 
     # Load dataset
+    regions = args.regions or config.get("regions", None)
     dataset = TVSDNormMUADataset(
         tvsd_dir=args.tvsd_dir,
         monkey=args.monkey,
         split=args.split,
+        regions=regions,
         mode="capoyo",
     )
     print(f"  Dataset: {len(dataset)} samples")
