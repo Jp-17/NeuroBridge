@@ -233,7 +233,78 @@ sequence_length: 1.0
 | 2026-02-21 | 项目启动 | ✅ NeuroBridge proposal 审查完成 | GPU 为 4090 24GB 而非 A100 80GB | 调整模型配置为 dim=128 |
 | 2026-02-21 | 项目启动 | ✅ 执行计划制定完成 | TVSD 未下载 | 需立即启动 |
 | 2026-02-21 | 项目启动 | ✅ 分析文档保存到 cc_todo | - | - |
+| 2026-02-21 | Phase 0.1 | ✅ 环境检查完成 | torch_brain 需设 PYTHONPATH | `PYTHONPATH=/root/autodl-tmp/NeuroBridge` |
+| 2026-02-21 | Phase 0.1 | poyo conda 环境确认可用 | PyTorch 2.10.0+cu128, RTX 4090D 25.3GB | - |
+| 2026-02-21 | Phase 0.2 | ✅ 50 epoch 快速验证通过 (R²=-0.001) | 正常 — 1000 epoch 才收敛 | 后台运行完整训练 PID:9140 |
+| 2026-02-21 | Phase 0.2 | ✅ 1000 epoch 完整训练完成 | 最终 test R²=0.836 (目标≈0.87) | 可接受，checkpoint 在 epoch=799 |
+| 2026-02-21 | Phase 0.3 | ✅ TVSD 数据仓库克隆成功 | datalad 需要 git-annex ≥ 10.x | `conda install -c conda-forge git-annex` |
+| 2026-02-21 | Phase 0.3 | ✅ normMUA.mat 下载完成 (两只猴各~194MB) | MAT v7.3 需用 h5py 读取 | scipy.io.loadmat 不支持 v7.3 |
+| 2026-02-21 | Phase 0.3 | ✅ TVSD 数据结构完整探索 | normMUA 是时间平均的 2D 数据 [22248,1024] | 对 CLIP 对齐已足够 |
+| 2026-02-21 | Phase 0.3 | ✅ 电极-脑区映射确认 | 映射来自 norm_MUA.m 源代码 | 见下方详细记录 |
+| 2026-02-21 | Phase 0.3 | ✅ 图像-试次映射确认 | things_imgs.mat 包含 THINGS 路径 | train:22248张, test:100张 |
 | | | | | |
+
+---
+
+## 8. TVSD 数据结构详细记录
+
+### 8.1 电极-脑区映射
+
+**来源**：`_code/norm_MUA.m` 第 11-19 行
+
+| 猴子 | 通道范围 | 脑区 | 电极数 |
+|------|---------|------|--------|
+| monkeyF | 1-512 | V1 | 512 |
+| monkeyF | 513-832 | IT | 320 |
+| monkeyF | 833-1024 | V4 | 192 |
+| monkeyN | 1-512 | V1 | 512 |
+| monkeyN | 513-768 | V4 | 256 |
+| monkeyN | 769-1024 | IT | 256 |
+
+**注意**：`1024chns_mapping_20220105.mat` 包含通道重排映射（recording system → physical order）。`norm_MUA.m` 中先定义 rois，再 `rois = rois(mapping)` 重排，最终 normMUA 数据已按物理顺序存储。
+
+### 8.2 时间窗口（用于 normMUA 时间平均）
+
+| 脑区 | 时间窗口 (ms post-stimulus) |
+|------|---------------------------|
+| V1 | 25-125 |
+| V4 | 50-150 |
+| IT | 75-175 |
+
+### 8.3 normMUA 数据格式
+
+```
+THINGS_normMUA.mat (h5py):
+  train_MUA: [1024, 22248] → 转置后 [22248, 1024]
+  test_MUA:  [1024, 100]   → 转置后 [100, 1024]
+  test_MUA_reps: [1024, 100, 30] → 转置后 [30, 100, 1024]
+  tb: [-100ms to +199ms], 300 time bins at 1ms
+  SNR, SNR_max, lats, oracle, reliab: 质量指标
+```
+
+**关键发现**：normMUA 是**时间平均的 2D 数据**（每个电极每张图一个标量值），不含时间维度。这对 CLIP 对齐足够，但做 masking 预训练需要完整时间序列 `THINGS_MUA_trials.mat`（~58GB/猴）。
+
+### 8.4 图像-试次映射
+
+```
+things_imgs.mat (h5py):
+  train_imgs:
+    class: [22248, 1] → 图像类别名 (e.g., "aardvark")
+    things_path: [22248, 1] → THINGS 路径 (e.g., "aardvark/aardvark_01b.jpg")
+    local_path: [22248, 1]
+  test_imgs:
+    class: [100, 1]
+    things_path: [100, 1]
+    local_path: [100, 1]
+```
+
+normMUA 中的 train_MUA/test_MUA 已按 things_imgs 排序，直接对应。
+
+### 8.5 对 NeuroBridge pipeline 的影响
+
+1. **CLIP 对齐（Phase 2）可直接使用 normMUA**：22248 个 trial × 1024 通道，每个对应一张 THINGS 图像
+2. **Masking 预训练（Phase 1b）需要完整时间序列**：需下载 THINGS_MUA_trials.mat（~58GB），或在 normMUA 上设计替代预训练方案
+3. **脑区消融实验（Phase 3）有明确通道划分**：可直接选取 V1/V4/IT 子集
 
 ---
 
