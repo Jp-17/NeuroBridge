@@ -266,6 +266,10 @@ def main():
                         help="Gaussian noise std for MUA augmentation")
     parser.add_argument("--early_stopping", type=int, default=0,
                         help="Early stopping patience (0=disabled)")
+    parser.add_argument("--pretrained_encoder", type=str, default=None,
+                        help="Path to pretrained encoder checkpoint (masking pretraining)")
+    parser.add_argument("--freeze_encoder_epochs", type=int, default=0,
+                        help="Freeze encoder for first N epochs (warmup readout/projector)")
     args = parser.parse_args()
 
     # Setup
@@ -335,6 +339,22 @@ def main():
 
     # Initialize vocabularies
     model.encoder.unit_emb.initialize_vocab(dataset.get_unit_ids())
+
+    # Load pretrained encoder if provided
+    if args.pretrained_encoder:
+        print(f"Loading pretrained encoder from {args.pretrained_encoder}")
+        pretrain_ckpt = torch.load(args.pretrained_encoder, map_location=device, weights_only=False)
+        if "encoder_state_dict" in pretrain_ckpt:
+            model.encoder.load_state_dict(pretrain_ckpt["encoder_state_dict"])
+            print(f"  Loaded encoder from epoch {pretrain_ckpt.get('epoch', '?')}")
+        else:
+            # Try loading from full model state dict
+            full_state = pretrain_ckpt["model_state_dict"]
+            encoder_state = {k.replace("encoder.", ""): v for k, v in full_state.items()
+                            if k.startswith("encoder.")}
+            model.encoder.load_state_dict(encoder_state)
+            print(f"  Loaded encoder from full model checkpoint")
+
     n_params = model.count_parameters()
     print(f"Model parameters: {n_params:,}")
 
@@ -368,9 +388,21 @@ def main():
         print(f"  Augmentation: electrode_dropout={args.electrode_dropout}, noise_std={args.noise_std}")
     if args.early_stopping > 0:
         print(f"  Early stopping patience: {args.early_stopping}")
+    if args.pretrained_encoder:
+        print(f"  Pretrained encoder: {args.pretrained_encoder}")
+    if args.freeze_encoder_epochs > 0:
+        print(f"  Freezing encoder for first {args.freeze_encoder_epochs} epochs")
+        for param in model.encoder.parameters():
+            param.requires_grad = False
     print("-" * 80)
 
     for epoch in range(1, args.epochs + 1):
+        # Unfreeze encoder after warmup
+        if args.freeze_encoder_epochs > 0 and epoch == args.freeze_encoder_epochs + 1:
+            print(f"  [Epoch {epoch}] Unfreezing encoder")
+            for param in model.encoder.parameters():
+                param.requires_grad = True
+
         t0 = time.time()
 
         train_metrics = train_epoch(
