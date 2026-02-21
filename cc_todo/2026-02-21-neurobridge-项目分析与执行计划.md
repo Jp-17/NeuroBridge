@@ -242,6 +242,15 @@ sequence_length: 1.0
 | 2026-02-21 | Phase 0.3 | ✅ TVSD 数据结构完整探索 | normMUA 是时间平均的 2D 数据 [22248,1024] | 对 CLIP 对齐已足够 |
 | 2026-02-21 | Phase 0.3 | ✅ 电极-脑区映射确认 | 映射来自 norm_MUA.m 源代码 | 见下方详细记录 |
 | 2026-02-21 | Phase 0.3 | ✅ 图像-试次映射确认 | things_imgs.mat 包含 THINGS 路径 | train:22248张, test:100张 |
+| 2026-02-21 | Phase 1a | ✅ NeuroBridge 包结构 + 数据适配 | - | neurobridge/{data,models,tests}/ |
+| 2026-02-21 | Phase 1a | ✅ 前向传播验证通过 | 2.3M params, 143.5MB GPU | 5/5 tests passed |
+| 2026-02-21 | Phase 2a | ✅ CLIP 对齐模块实现 | - | CLIPWrapper, Readout, Projector, InfoNCE |
+| 2026-02-21 | Phase 2a | ✅ Pipeline 验证（随机嵌入） | ~7s/epoch, 3.3M params | chance level 正常 |
+| 2026-02-21 | Phase 2b | ✅ THINGS 图像下载完成 | HF 直连不可用 | hf-mirror.com 镜像 |
+| 2026-02-21 | Phase 2b | ✅ CLIP 嵌入提取完成 | 22248+100 张, 0 missing | ViT-L-14 (768-dim) |
+| 2026-02-21 | Phase 2b | ✅ diffusers 安装完成 | diffusers 0.36.0 | - |
+| 2026-02-21 | Phase 2b | 🔄 CLIP 对齐训练启动 | 100 epochs, 后台运行 | 待查看结果 |
+| 2026-02-21 | Phase 2c | ✅ DiffusionAdapter 实现 | Token Expander + Refiner | 768→77×1024 |
 | | | | | |
 
 ---
@@ -453,10 +462,74 @@ scripts/evaluate_alignment.py                # 检索评估指标
 
 ### 11.4 待完成
 
-1. THINGS 图像下载完成后提取 CLIP 嵌入
-2. 用真实 CLIP 嵌入训练对齐模型
+1. ✅ THINGS 图像下载完成后提取 CLIP 嵌入
+2. 🔄 用真实 CLIP 嵌入训练对齐模型（正在后台运行）
 3. 测试 DiffusionAdapter + SD 生成
-4. 安装 diffusers 包
+4. ✅ 安装 diffusers 包
+
+---
+
+## 12. Phase 2b 实现记录：CLIP 嵌入提取 + 真实对齐训练
+
+### 12.1 完成内容
+
+| 日期 | 完成内容 | 关键数据 |
+|------|---------|---------|
+| 2026-02-21 | ✅ THINGS 图像下载完成 | 4.68GB, 1854 class folders, OSF password: things4all |
+| 2026-02-21 | ✅ CLIP 嵌入提取完成 | ViT-L-14 (openai), 22248 train + 100 test, 0 missing |
+| 2026-02-21 | ✅ diffusers 安装完成 | diffusers 0.36.0 |
+| 2026-02-21 | 🔄 CLIP 对齐训练启动 | 100 epochs, batch=256, lr=3e-4, 3.3M params |
+
+### 12.2 CLIP 嵌入提取
+
+```
+HuggingFace 直连不可用 → 使用 HF_ENDPOINT=https://hf-mirror.com 镜像
+ViT-L-14 (openai pretrained) → 768-dim embeddings
+Train: 22248 images → clip_train_monkeyF.npy (22248, 768)
+Test:  100 images   → clip_test_monkeyF.npy  (100, 768)
+所有图像路径匹配成功，0 个缺失
+```
+
+### 12.3 CLIP 对齐训练配置
+
+```json
+{
+  "monkey": "monkeyF",
+  "epochs": 100,
+  "batch_size": 256,
+  "lr": 3e-4,
+  "weight_decay": 1e-4,
+  "val_ratio": 0.1,
+  "encoder_dim": 128,
+  "encoder_depth": 6,
+  "num_latents": 8,
+  "clip_dim": 768,
+  "projector_hidden": 512,
+  "n_params": 3299648,
+  "n_train": 20024,
+  "n_val": 2224
+}
+```
+
+### 12.4 训练状态
+
+训练正在后台运行。Checkpoint 保存在：
+```
+checkpoints/clip_alignment_v1/
+  config.json           # 训练配置
+  best_model.pt         # 最佳验证模型
+  checkpoint_epoch10.pt # 第 10 epoch 检查点
+  checkpoint_epoch20.pt # 第 20 epoch 检查点
+  ...
+```
+
+### 12.5 数据文件位置
+
+```
+data/clip_embeddings/
+  clip_train_monkeyF.npy  # (22248, 768) float32
+  clip_test_monkeyF.npy   # (100, 768) float32
+```
 
 ---
 

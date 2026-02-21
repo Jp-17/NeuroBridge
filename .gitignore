@@ -164,3 +164,7 @@ data/raw
 checkpoint.pth
 
 uv.lock
+
+# NeuroBridge specific
+checkpoints/
+data/clip_embeddings/*.npy
