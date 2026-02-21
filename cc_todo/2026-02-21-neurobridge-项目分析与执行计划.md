@@ -403,9 +403,60 @@ scripts/train_clip_alignment.py          # 端到端训练脚本
 
 **问题**：THINGS 图像需从 OSF (https://osf.io/jum2f/) 下载
 **方案**：
-1. 下载 THINGS 图像数据库（~5GB，26107 张图）
+1. 下载 THINGS 图像数据库（~5GB，26107 张图）→ 正在下载中
 2. 用 open_clip ViT-L-14 预提取所有 22248+100 张图的 CLIP 嵌入
 3. 保存为 .npy 文件，供训练时直接加载
+
+---
+
+## 11. Phase 2c 实现记录：Diffusion Adapter
+
+### 11.1 完成内容
+
+| 日期 | 完成内容 | 关键数据 |
+|------|---------|---------|
+| 2026-02-21 | ✅ DiffusionAdapter 实现 | Token Expander + Refiner (768 → 77×1024) |
+| 2026-02-21 | ✅ StableDiffusionWrapper 实现 | SD 2.1 + DDIM 50 steps |
+| 2026-02-21 | ✅ CLIP 嵌入提取脚本 | scripts/extract_clip_embeddings.py |
+| 2026-02-21 | ✅ 评估脚本 | scripts/evaluate_alignment.py |
+| 2026-02-21 | 🔄 THINGS 图像下载中 | images_THINGS.zip (~5GB from OSF, password: things4all) |
+
+### 11.2 端到端 pipeline 完整架构
+
+```
+Phase 1a: TVSD normMUA [22248, 1024]
+    ↓
+Phase 2a: NeuroBridgeEncoder (CaPOYO-style, 2.3M params)
+    1024 electrodes → 1024 tokens → PerceiverIO → 8 latents × 128d
+    ↓
+Phase 2a: NeuralReadout (8 learnable queries, cross-attention)
+    ↓
+Phase 2a: NeuralProjector (3-layer MLP → 768-dim CLIP space)
+    ↓
+Phase 2a: InfoNCE loss ←→ CLIP image embeddings (768-dim)
+    ↓ (after training)
+Phase 2c: DiffusionAdapter (cross-attn + self-attn refiner)
+    768-dim → 77 tokens × 1024-dim (SD conditioning)
+    ↓
+Phase 2c: StableDiffusionWrapper (SD 2.1 + DDIM)
+    → reconstructed image (512×512)
+```
+
+### 11.3 新增文件清单
+
+```
+neurobridge/generation/__init__.py
+neurobridge/generation/diffusion_adapter.py  # DiffusionAdapter + SDWrapper
+scripts/extract_clip_embeddings.py           # CLIP 嵌入预提取
+scripts/evaluate_alignment.py                # 检索评估指标
+```
+
+### 11.4 待完成
+
+1. THINGS 图像下载完成后提取 CLIP 嵌入
+2. 用真实 CLIP 嵌入训练对齐模型
+3. 测试 DiffusionAdapter + SD 生成
+4. 安装 diffusers 包
 
 ---
 
