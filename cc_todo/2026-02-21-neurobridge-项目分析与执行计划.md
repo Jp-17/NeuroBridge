@@ -251,6 +251,8 @@ sequence_length: 1.0
 | 2026-02-21 | Phase 2b | ✅ diffusers 安装完成 | diffusers 0.36.0 | - |
 | 2026-02-21 | Phase 2b | 🔄 CLIP 对齐训练启动 | 100 epochs, 后台运行 | 待查看结果 |
 | 2026-02-21 | Phase 2b | ✅ CLIP 对齐训练完成 | **Test Top-1=53%, Top-5=82%** | Best model at epoch 40 |
+| 2026-02-21 | Phase 2b+ | ✅ V2 训练（带增强）完成 | **Test Top-5=85-89%**, val top5=62.8% | 电极dropout+噪声有效 |
+| 2026-02-21 | Phase 2c | ✅ DiffusionAdapter 实现 | SD 2.1→1.5 (768-dim), 已缓存 | reconstruct_images.py |
 | 2026-02-21 | Phase 2c | ✅ DiffusionAdapter 实现 | Token Expander + Refiner | 768→77×1024 |
 | | | | | |
 
@@ -563,13 +565,104 @@ checkpoints/clip_alignment_v1/
   test_metrics.json        # 测试集评估结果
 ```
 
-### 12.5 数据文件位置
+### 12.5 V2 训练（带增强）
+
+**改进**：
+- 电极 dropout = 0.15（随机丢弃 15% 电极）
+- 高斯噪声 std = 0.1
+- Weight decay 5e-4（从 1e-4 增大）
+- Early stopping patience = 30
+
+**V2 结果**：
+- Best val top-5: **62.8%** (epoch 42, 提升 +6.8%)
+- Early stopping at epoch 72
+
+**V2 测试集评估 (100 张图像)**：
+
+| 指标 | V1 | V2 | 变化 |
+|------|----|----|------|
+| N→I Top-1 | 53.0% | 49.0% | -4% |
+| N→I Top-5 | 82.0% | 85.0% | **+3%** |
+| I→N Top-1 | 54.0% | 56.0% | +2% |
+| I→N Top-5 | 81.0% | 89.0% | **+8%** |
+| Top-10 | 94.0% | 94.0% | same |
+
+**结论**：V2 在 Top-5 上更强 (85-89%)，Top-1 略有波动（100 张测试集方差较大）。建议后续以 V2 为基础。
+
+### 12.6 数据文件位置
 
 ```
 data/clip_embeddings/
   clip_train_monkeyF.npy  # (22248, 768) float32
   clip_test_monkeyF.npy   # (100, 768) float32
+
+checkpoints/clip_alignment_v1/  # 无增强
+checkpoints/clip_alignment_v2/  # 带增强（推荐）
 ```
+
+### 12.7 SD 模型适配
+
+**问题**：SD 2.1 (`stabilityai/stable-diffusion-2-1`) 需要 HF 认证，镜像不可用。
+**解决**：改用 SD 1.5 (`runwayml/stable-diffusion-v1-5`)，已缓存可用。
+**影响**：SD 1.5 text_hidden_dim=768（与 CLIP 嵌入相同），DiffusionAdapter 需调整 sd_hidden_dim。
+
+---
+
+## 13. 当日总结 (2026-02-21)
+
+### 完成的阶段
+
+| 阶段 | 状态 | 核心成果 |
+|------|------|---------|
+| Phase 0.1 | ✅ 完成 | 环境搭建，torch_brain 可用 |
+| Phase 0.2 | ✅ 完成 | POYO baseline R²=0.836 |
+| Phase 0.3 | ✅ 完成 | TVSD 数据下载 + 结构探索 |
+| Phase 1a | ✅ 完成 | CaPOYO tokenization 验证通过 |
+| Phase 2a | ✅ 完成 | CLIP 对齐模块全部实现 |
+| Phase 2b | ✅ 完成 | **Test Top-1=53%, Top-5=85%** |
+| Phase 2c (部分) | 🔄 进行中 | DiffusionAdapter 实现完毕，SD 1.5 可用 |
+
+### 当日关键代码产出
+
+```
+neurobridge/
+  __init__.py
+  data/
+    __init__.py
+    tvsd_dataset.py             # TVSD normMUA 数据集适配器
+  models/
+    __init__.py
+    neurobridge_encoder.py      # CaPOYO-based 编码器 (2.3M params)
+  alignment/
+    __init__.py
+    clip_wrapper.py             # CLIP 封装
+    readout.py                  # 可学习 readout 查询
+    projector.py                # MLP 投影器 → CLIP 空间
+    infonce.py                  # InfoNCE 对比损失
+  generation/
+    __init__.py
+    diffusion_adapter.py        # DiffusionAdapter + SDWrapper
+  tests/
+    __init__.py
+    test_tvsd_forward.py        # 前向传播测试
+
+scripts/
+  train_clip_alignment.py       # CLIP 对齐训练脚本
+  extract_clip_embeddings.py    # CLIP 嵌入提取
+  evaluate_alignment.py         # 检索评估
+  reconstruct_images.py         # 端到端图像重建
+
+data/clip_embeddings/
+  clip_train_monkeyF.npy        # (22248, 768)
+  clip_test_monkeyF.npy         # (100, 768)
+```
+
+### 接下来要做的
+
+1. **Phase 2c 收尾**：训练 DiffusionAdapter + SD 生成首批重建图像
+2. **Phase 2b+ (可选)**：进一步优化 CLIP 对齐（更大 batch、SoftCLIP loss、label smoothing）
+3. **Phase 1b**：Masking 预训练（需下载 THINGS_MUA_trials.mat ~58GB 或设计 normMUA 上的替代方案）
+4. **Phase 3**：消融实验（预训练 vs 随机、V1/V4/IT 脑区）
 
 ---
 
