@@ -205,15 +205,16 @@ class TVSDNormMUADataset(Dataset):
                 "electrode_indices": torch.from_numpy(
                     self.active_electrode_indices.astype(np.int64)
                 ),
+                "idx": idx,
             }
 
         elif self.mode == "capoyo":
-            return self._make_capoyo_sample(mua, img_idx)
+            return self._make_capoyo_sample(mua, img_idx, idx)
 
         else:
             raise ValueError(f"Unknown mode: {self.mode}")
 
-    def _make_capoyo_sample(self, mua: np.ndarray, img_idx: int) -> Dict:
+    def _make_capoyo_sample(self, mua: np.ndarray, img_idx: int, idx: int) -> Dict:
         """Create a CaPOYO-compatible tokenized sample.
 
         For normMUA (time-averaged), we create 1 timepoint × N electrodes.
@@ -255,6 +256,7 @@ class TVSDNormMUADataset(Dataset):
             "image_path": self.image_paths[img_idx],
             "region_labels": torch.from_numpy(self.region_labels),
             "unit_ids": self.unit_ids.tolist(),
+            "idx": idx,
         }
 
     def get_unit_ids(self) -> List[str]:

@@ -353,4 +353,60 @@ neurobridge/tests/test_tvsd_forward.py    # Forward pass verification
 
 ---
 
+## 10. Phase 2a 实现记录：CLIP 对齐模块
+
+### 10.1 完成内容
+
+| 日期 | 完成内容 | 关键数据 |
+|------|---------|---------|
+| 2026-02-21 | ✅ 安装 transformers + open_clip_torch | transformers 5.2.0, open_clip 3.2.0 |
+| 2026-02-21 | ✅ CLIP 对齐模块实现 | CLIPWrapper, NeuralReadout, NeuralProjector, InfoNCELoss |
+| 2026-02-21 | ✅ 端到端训练脚本实现 | train_clip_alignment.py |
+| 2026-02-21 | ✅ Pipeline 验证通过（随机 CLIP embeddings） | 5 epochs, ~7s/epoch |
+
+### 10.2 模块架构
+
+```
+TVSD normMUA [B, 1024]
+    → NeuroBridgeEncoder (CaPOYO-style)
+        1024 input tokens → PerceiverIO → 8 latent tokens × 128 dim
+    → NeuralReadout (cross-attention)
+        8 learnable queries attend to 8 latents → 8 readout tokens × 128 dim
+    → NeuralProjector (3-layer MLP)
+        mean pool → 512 hidden → 768 output (CLIP dim)
+        → L2 normalize
+    → InfoNCE loss ← CLIP image embedding (768-dim)
+```
+
+### 10.3 Pipeline 验证结果（随机 CLIP 嵌入）
+
+```
+Model: 3,299,648 params
+Epoch 1: loss=4.917, acc=0.007, top5=0.039 (chance: 1/128=0.008)
+Epoch 5: loss=4.880, acc=0.009, top5=0.045
+Speed: ~7s/epoch (22248 samples, batch=128, RTX 4090)
+结论: pipeline 运行正确，指标在 chance level（符合预期）
+```
+
+### 10.4 新增文件清单
+
+```
+neurobridge/alignment/__init__.py
+neurobridge/alignment/clip_wrapper.py    # CLIP 模型封装 (open_clip)
+neurobridge/alignment/readout.py         # 可学习 readout 查询
+neurobridge/alignment/projector.py       # MLP projector → CLIP 空间
+neurobridge/alignment/infonce.py         # 对称 InfoNCE loss
+scripts/train_clip_alignment.py          # 端到端训练脚本
+```
+
+### 10.5 下一步：获取真实 CLIP 嵌入
+
+**问题**：THINGS 图像需从 OSF (https://osf.io/jum2f/) 下载
+**方案**：
+1. 下载 THINGS 图像数据库（~5GB，26107 张图）
+2. 用 open_clip ViT-L-14 预提取所有 22248+100 张图的 CLIP 嵌入
+3. 保存为 .npy 文件，供训练时直接加载
+
+---
+
 *本文档将随项目进展持续更新。*
