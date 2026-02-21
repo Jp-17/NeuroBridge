@@ -308,4 +308,49 @@ normMUA 中的 train_MUA/test_MUA 已按 things_imgs 排序，直接对应。
 
 ---
 
+## 9. Phase 1a 实现记录
+
+### 9.1 完成内容
+
+| 日期 | 完成内容 | 关键数据 |
+|------|---------|---------|
+| 2026-02-21 | ✅ neurobridge 包结构创建 | `neurobridge/{data,models,tests}/` |
+| 2026-02-21 | ✅ TVSDNormMUADataset 实现 | 支持 raw/capoyo 两种模式，脑区过滤，SNR 过滤 |
+| 2026-02-21 | ✅ NeuroBridgeEncoder 实现 | 基于 CaPOYO 架构，dim=128, depth=6, 2.3M params |
+| 2026-02-21 | ✅ 前向传播验证通过 | 5/5 测试通过 |
+
+### 9.2 前向传播验证结果
+
+```
+Dataset: 22248 train, 100 test, 1024 electrodes, 1854 classes
+Model: NeuroBridgeEncoder, 2,308,032 parameters
+Input: (batch=32, 1024 tokens, 1 value) → forward → (32, 8, 128) latent output
+GPU memory: 143.5 MB peak (batch_size=32, AMP)
+MUA stats: mean=0.020, std=0.443, range=[-2.59, 71.0]
+```
+
+### 9.3 新增文件清单
+
+```
+neurobridge/__init__.py
+neurobridge/data/__init__.py
+neurobridge/data/tvsd_dataset.py          # TVSD normMUA dataset adapter
+neurobridge/models/__init__.py
+neurobridge/models/neurobridge_encoder.py # CaPOYO-based neural encoder
+neurobridge/tests/__init__.py
+neurobridge/tests/test_tvsd_forward.py    # Forward pass verification
+```
+
+### 9.4 GO/NO-GO 决策点 1
+
+**CaPOYO-style tokenization 是否有效处理 TVSD MUA？**
+
+**结论：GO** ✅
+- normMUA 时间平均数据通过 CaPOYO tokenization 成功
+- 1024 电极 → 1024 input tokens → 8 latent tokens → 128-dim representations
+- GPU 内存开销极低（batch=32 仅 144MB）
+- 下一步：Phase 1b (masking 预训练) 或直接跳到 Phase 2 (CLIP 对齐)
+
+---
+
 *本文档将随项目进展持续更新。*
