@@ -657,12 +657,83 @@ data/clip_embeddings/
   clip_test_monkeyF.npy         # (100, 768)
 ```
 
+---
+
+## 14. Phase 2c: DiffusionAdapter 训练与图像重建
+
+### DiffusionAdapter 训练
+
+**模型**: DiffusionAdapter (17.2M params)
+- 77 learnable query tokens + cross-attention to CLIP embedding + self-attention refiner
+- 输入: (batch, 768) CLIP embedding → 输出: (batch, 77, 768) SD prompt tokens
+
+**训练配置**:
+- 数据: clip_train_monkeyF.npy (22248 CLIP embeddings)
+- Loss: embedding preservation (cosine) + token diversity + contrastive (InfoNCE)
+- batch=256, lr=1e-3, early_stopping=30
+
+**训练结果**:
+- Best epoch: 33, early stop at epoch 63
+- Train cos_sim: 0.860, Val cos_sim: 0.851
+- Contrastive accuracy: 100% (embeddings well separated)
+
+### 首批重建 (untrained adapter)
+
+**V2 结果** (10张测试图, 未训练 adapter):
+- PixCorr: 0.149 ± 0.144
+- 重建图像为随机纹理，无法辨识原始内容
+- 这是预期结果 — adapter 使用随机权重
+
+### 训练后重建 (v3, 100张全部测试图)
+
+*生成中...*
+
+---
+
+## 15. Phase 1b: Masking 预训练模块实现
+
+### 新增文件
+
+```
+neurobridge/pretraining/
+  __init__.py
+  masking_strategy.py      # 电极 masking 策略 (随机/脑区平衡)
+  masking_decoder.py       # Cross-attention 解码器 (latents → MUA)
+  masking_pretraining.py   # 完整 encoder+decoder 预训练模型
+
+scripts/
+  train_masking_pretraining.py   # 预训练训练脚本
+  train_diffusion_adapter.py     # DiffusionAdapter 训练脚本
+```
+
+### 架构
+
+```
+Input MUA (1024 electrodes)
+  → Mask 25% electrodes (random)
+  → NeuroBridgeEncoder (CaPOYO: cross-attn → self-attn × 6)
+  → Latent tokens (8 × 128)
+  → MaskingDecoder (cross-attn from query tokens to latents)
+  → Predicted MUA values
+  → MSE loss on masked positions only
+```
+
+### 模型参数
+
+- **总参数**: 2,638,337 (2.6M)
+  - Encoder: 2,308,032 (2.3M)
+  - Decoder: 330,305 (330K)
+- **Mask ratio**: 25% (平均 256/1024 electrodes)
+- **Forward pass 验证**: OK
+
 ### 接下来要做的
 
-1. **Phase 2c 收尾**：训练 DiffusionAdapter + SD 生成首批重建图像
-2. **Phase 2b+ (可选)**：进一步优化 CLIP 对齐（更大 batch、SoftCLIP loss、label smoothing）
-3. **Phase 1b**：Masking 预训练（需下载 THINGS_MUA_trials.mat ~58GB 或设计 normMUA 上的替代方案）
-4. **Phase 3**：消融实验（预训练 vs 随机、V1/V4/IT 脑区）
+1. **Phase 2c 完成**: 评估训练后 adapter 的重建质量
+2. **Phase 1b 训练**: 运行 masking 预训练 (200 epochs)
+3. **Phase 3 核心消融**:
+   - 预训练 encoder vs 随机初始化 encoder → CLIP 对齐对比
+   - V1/V4/IT 脑区贡献分析
+   - Masking 比例消融 (15%/25%/40%)
 
 ---
 
