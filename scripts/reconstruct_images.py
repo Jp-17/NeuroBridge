@@ -114,7 +114,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--n_samples", type=int, default=None,
                         help="Number of samples to reconstruct (None=all)")
-    parser.add_argument("--sd_model", type=str, default="stabilityai/stable-diffusion-2-1")
+    parser.add_argument("--sd_model", type=str, default="runwayml/stable-diffusion-v1-5")
     parser.add_argument("--sd_steps", type=int, default=50)
     parser.add_argument("--guidance_scale", type=float, default=7.5)
     parser.add_argument("--seed", type=int, default=42)
@@ -216,7 +216,7 @@ def main():
     # Load DiffusionAdapter
     adapter = DiffusionAdapter(
         clip_dim=config.get("clip_dim", 768),
-        sd_hidden_dim=1024,  # SD 2.1 uses 1024
+        sd_hidden_dim=768,  # SD 1.5 uses 768
         n_tokens=77,
     ).to(device)
 

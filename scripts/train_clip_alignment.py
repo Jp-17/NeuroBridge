@@ -123,8 +123,36 @@ def collate_fn(batch):
     }
 
 
+def augment_neural_data(batch, electrode_dropout=0.1, noise_std=0.1):
+    """Apply augmentation to neural MUA data during training.
+
+    Args:
+        batch: dict with input_values, input_mask, etc.
+        electrode_dropout: probability of zeroing out each electrode
+        noise_std: std of additive Gaussian noise on MUA values
+    """
+    input_values = batch["input_values"]  # (B, N, 1)
+    input_mask = batch["input_mask"]      # (B, N)
+
+    # 1. Electrode dropout: randomly mask out electrodes
+    if electrode_dropout > 0:
+        drop_mask = torch.rand(input_values.shape[0], input_values.shape[1],
+                               device=input_values.device) > electrode_dropout
+        input_values = input_values * drop_mask.unsqueeze(-1).float()
+        input_mask = input_mask & drop_mask
+
+    # 2. Gaussian noise on MUA values
+    if noise_std > 0:
+        noise = torch.randn_like(input_values) * noise_std
+        input_values = input_values + noise
+
+    batch["input_values"] = input_values
+    batch["input_mask"] = input_mask
+    return batch
+
+
 def train_epoch(model, criterion, optimizer, dataloader, clip_embeddings,
-                device, epoch, scaler=None):
+                device, epoch, scaler=None, electrode_dropout=0.0, noise_std=0.0):
     """Train for one epoch."""
     model.train()
     total_loss = 0
@@ -140,6 +168,10 @@ def train_epoch(model, criterion, optimizer, dataloader, clip_embeddings,
 
         # Move batch to device
         batch = {k: v.to(device) for k, v in batch.items()}
+
+        # Apply augmentation during training
+        if electrode_dropout > 0 or noise_std > 0:
+            batch = augment_neural_data(batch, electrode_dropout, noise_std)
 
         optimizer.zero_grad()
 
@@ -228,6 +260,12 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--save_dir", type=str, default="checkpoints")
     parser.add_argument("--log_interval", type=int, default=5)
+    parser.add_argument("--electrode_dropout", type=float, default=0.0,
+                        help="Electrode dropout rate for augmentation")
+    parser.add_argument("--noise_std", type=float, default=0.0,
+                        help="Gaussian noise std for MUA augmentation")
+    parser.add_argument("--early_stopping", type=int, default=0,
+                        help="Early stopping patience (0=disabled)")
     args = parser.parse_args()
 
     # Setup
@@ -323,8 +361,13 @@ def main():
     # Training loop
     best_val_top5 = 0.0
     log_lines = []
+    patience_counter = 0
 
     print(f"\nStarting training for {args.epochs} epochs...")
+    if args.electrode_dropout > 0 or args.noise_std > 0:
+        print(f"  Augmentation: electrode_dropout={args.electrode_dropout}, noise_std={args.noise_std}")
+    if args.early_stopping > 0:
+        print(f"  Early stopping patience: {args.early_stopping}")
     print("-" * 80)
 
     for epoch in range(1, args.epochs + 1):
@@ -332,7 +375,9 @@ def main():
 
         train_metrics = train_epoch(
             model, criterion, optimizer, train_loader, clip_embeddings,
-            device, epoch, scaler
+            device, epoch, scaler,
+            electrode_dropout=args.electrode_dropout,
+            noise_std=args.noise_std,
         )
         val_metrics = evaluate(model, criterion, val_loader, clip_embeddings, device)
         scheduler.step()
@@ -356,6 +401,7 @@ def main():
         # Save best model
         if val_metrics["top5_accuracy"] > best_val_top5:
             best_val_top5 = val_metrics["top5_accuracy"]
+            patience_counter = 0
             torch.save({
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
@@ -363,6 +409,8 @@ def main():
                 "val_top5": best_val_top5,
                 "config": config,
             }, save_dir / "best_model.pt")
+        else:
+            patience_counter += 1
 
         # Save latest
         if epoch % 10 == 0:
@@ -373,6 +421,11 @@ def main():
                 "val_top5": val_metrics["top5_accuracy"],
                 "config": config,
             }, save_dir / f"checkpoint_epoch{epoch}.pt")
+
+        # Early stopping
+        if args.early_stopping > 0 and patience_counter >= args.early_stopping:
+            print(f"Early stopping at epoch {epoch} (patience={args.early_stopping})")
+            break
 
     # Save training log
     with open(save_dir / "training_log.txt", "w") as f:

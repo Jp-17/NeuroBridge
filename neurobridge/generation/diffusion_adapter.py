@@ -18,14 +18,14 @@ class StableDiffusionWrapper:
     Stable Diffusion, replacing the standard text prompt conditioning.
 
     Args:
-        model_id: Stable Diffusion model ID (default: stabilityai/stable-diffusion-2-1)
+        model_id: Stable Diffusion model ID (default: runwayml/stable-diffusion-v1-5)
         device: Device to run on
         cache_dir: Model cache directory
     """
 
     def __init__(
         self,
-        model_id: str = "stabilityai/stable-diffusion-2-1",
+        model_id: str = "runwayml/stable-diffusion-v1-5",
         device: str = "cuda",
         cache_dir: Optional[str] = None,
     ):
@@ -145,7 +145,7 @@ class DiffusionAdapter(nn.Module):
 
     Args:
         clip_dim: Input CLIP embedding dimension (default: 768)
-        sd_hidden_dim: SD text encoder hidden dimension (default: 1024 for SD 2.1)
+        sd_hidden_dim: SD text encoder hidden dimension (default: 768 for SD 1.5)
         n_tokens: Number of output tokens (default: 77)
         n_heads: Self-attention heads (default: 8)
         depth: Number of refiner layers (default: 2)
@@ -154,7 +154,7 @@ class DiffusionAdapter(nn.Module):
     def __init__(
         self,
         clip_dim: int = 768,
-        sd_hidden_dim: int = 1024,
+        sd_hidden_dim: int = 768,
         n_tokens: int = 77,
         n_heads: int = 8,
         depth: int = 2,
