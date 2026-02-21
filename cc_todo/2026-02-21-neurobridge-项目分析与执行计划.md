@@ -250,6 +250,7 @@ sequence_length: 1.0
 | 2026-02-21 | Phase 2b | ✅ CLIP 嵌入提取完成 | 22248+100 张, 0 missing | ViT-L-14 (768-dim) |
 | 2026-02-21 | Phase 2b | ✅ diffusers 安装完成 | diffusers 0.36.0 | - |
 | 2026-02-21 | Phase 2b | 🔄 CLIP 对齐训练启动 | 100 epochs, 后台运行 | 待查看结果 |
+| 2026-02-21 | Phase 2b | ✅ CLIP 对齐训练完成 | **Test Top-1=53%, Top-5=82%** | Best model at epoch 40 |
 | 2026-02-21 | Phase 2c | ✅ DiffusionAdapter 实现 | Token Expander + Refiner | 768→77×1024 |
 | | | | | |
 
@@ -511,16 +512,55 @@ Test:  100 images   → clip_test_monkeyF.npy  (100, 768)
 }
 ```
 
-### 12.4 训练状态
+### 12.4 训练结果
 
-训练正在后台运行。Checkpoint 保存在：
+**训练完成！100 epochs, 共 ~400s (~4s/epoch)**
+
+#### 关键指标走势
+
+| 阶段 | 训练 Loss | 训练 Acc | 验证 Loss | 验证 Acc | 验证 Top-5 |
+|------|----------|---------|----------|---------|-----------|
+| Epoch 1 | 5.423 | 0.8% | 5.329 | 1.0% | 4.4% |
+| Epoch 10 | 4.272 | 7.7% | 4.267 | 7.8% | 26.8% |
+| Epoch 20 | 3.356 | 22.3% | 3.599 | 18.3% | 45.6% |
+| Epoch 30 | 2.425 | 41.8% | 3.250 | 23.9% | 53.6% |
+| **Epoch 40 (best)** | **1.514** | **64.5%** | **3.164** | **26.6%** | **56.0%** |
+| Epoch 60 | 0.399 | 94.1% | 3.392 | 26.5% | 53.3% |
+| Epoch 100 | 0.118 | 98.8% | 3.628 | 25.3% | 51.2% |
+
+**过拟合分析**：训练从 epoch 35-40 开始严重过拟合。Best model saved at epoch 40.
+
+#### 测试集评估结果 (100 张图像)
+
+```
+Neural → Image:
+  Top-1:  53.0%  (chance: 1.0%)
+  Top-5:  82.0%  (chance: 5.0%)
+  Top-10: 94.0%  (chance: 10.0%)
+  Top-50: 100.0%
+
+Image → Neural:
+  Top-1:  54.0%
+  Top-5:  81.0%
+  Top-10: 93.0%
+  Top-50: 100.0%
+
+Similarity:
+  Positive (mean±std): 0.164 ± 0.046
+  Negative (mean±std): 0.025 ± 0.050
+  Median rank: 0 (即大部分查询排名第一)
+```
+
+**GO/NO-GO 决策点 3**：✅ **GO** — Top-5 retrieval accuracy 82% 远超 15% 阈值！
+
+Checkpoint 保存在：
 ```
 checkpoints/clip_alignment_v1/
-  config.json           # 训练配置
-  best_model.pt         # 最佳验证模型
-  checkpoint_epoch10.pt # 第 10 epoch 检查点
-  checkpoint_epoch20.pt # 第 20 epoch 检查点
-  ...
+  config.json              # 训练配置
+  best_model.pt            # Epoch 40, val top5=56.0%
+  checkpoint_epoch{10-100}.pt  # 每 10 epoch 检查点
+  training_log.txt         # 完整训练日志
+  test_metrics.json        # 测试集评估结果
 ```
 
 ### 12.5 数据文件位置
