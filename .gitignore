@@ -170,3 +170,9 @@ checkpoints/
 data/clip_embeddings/*.npy
 results/**/*.png
 results/**/*.npy
+
+# Experiment directories (large data/checkpoints/results)
+data/
+cc_todo/20260221-cc-1st/data/
+cc_todo/20260221-cc-1st/checkpoints/
+cc_todo/20260221-cc-1st/results/
